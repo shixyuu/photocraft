@@ -219,6 +219,7 @@ dependencies = [
  "ndk-context",
  "ndk-sys",
  "num_enum",
+ "simd_cesu8",
  "thiserror 2.0.21",
 ]
 
@@ -227,6 +228,23 @@ name = "android-properties"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc7eb209b1518d6bb87b283c20095f5228ecda460da70b44f0802523dea6da04"
+
+[[package]]
+name = "android_log-sys"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "84521a3cf562bc62942e294181d9eef17eb38ceb8c68677bc49f144e4c3d4f8d"
+
+[[package]]
+name = "android_logger"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f6f39be698127218cca460cb624878c9aa4e2b47dba3b277963d2bf00bad263b"
+dependencies = [
+ "android_log-sys",
+ "env_filter",
+ "log",
+]
 
 [[package]]
 name = "android_system_properties"
@@ -3257,6 +3275,16 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "env_filter"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1bf3c259d255ca70051b30e2e95b5446cdb8949ac4cd22c0d7fd634d89f568e2"
+dependencies = [
+ "log",
+ "regex",
 ]
 
 [[package]]
@@ -6440,6 +6468,7 @@ dependencies = [
 name = "photocraft"
 version = "0.23.1"
 dependencies = [
+ "android_logger",
  "arboard",
  "async-io",
  "base64 0.22.1",
@@ -6456,6 +6485,7 @@ dependencies = [
  "eframe",
  "egui",
  "egui_kittest",
+ "flate2",
  "fmv-macos-events",
  "futures-lite",
  "log",
@@ -6475,6 +6505,7 @@ dependencies = [
  "photocraft-tablet",
  "photocraft-ui-egui",
  "plist",
+ "png 0.17.16",
  "rfd",
  "ron",
  "rustix 1.1.5",
@@ -6508,6 +6539,14 @@ dependencies = [
  "rustfft",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "photocraft-android"
+version = "0.23.1"
+dependencies = [
+ "photocraft",
+ "winit",
 ]
 
 [[package]]
@@ -7820,8 +7859,6 @@ dependencies = [
 [[package]]
 name = "rfd"
 version = "0.17.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "20dafead71c16a34e1ff357ddefc8afc11e7d51d6d2b9fbd07eaa48e3e540220"
 dependencies = [
  "block2 0.6.2",
  "dispatch2",
@@ -7835,6 +7872,7 @@ dependencies = [
  "percent-encoding",
  "pollster 0.4.0",
  "raw-window-handle",
+ "serde_json",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wayland-backend",

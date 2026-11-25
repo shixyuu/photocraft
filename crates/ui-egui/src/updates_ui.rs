@@ -19,6 +19,11 @@ pub(crate) struct Runtime {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn stable_updater<T>(identity: crate::os_window::LaunchIdentity, make: impl FnOnce() -> T) -> Option<T> {
+    // rustls-platform-verifier panics on Android until its JNI context is installed, and there
+    // is no Android installer for the desktop packages. The editor stays without a checker.
+    if cfg!(target_os = "android") {
+        return None;
+    }
     crate::os_window::stable_services_for(identity).then(make)
 }
 

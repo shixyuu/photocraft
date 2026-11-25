@@ -1,0 +1,85 @@
+plugins {
+    id "com.android.application"
+    id "org.jetbrains.kotlin.android"
+}
+
+android {
+    namespace "ai.storyteller.photocraft"
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "ai.storyteller.photocraft"
+        minSdk 28
+        targetSdk 35
+        versionCode 4
+        versionName "0.23.1"
+        ndk {
+            abiFilters "arm64-v8a", "x86_64"
+        }
+    }
+
+    // One release APK per ABI plus a universal package. The on-device installer opens a
+    // downloaded file; that path needs a JAR (v1) signature as well as the APK signing block.
+    splits {
+        abi {
+            enable true
+            reset()
+            include "arm64-v8a", "x86_64"
+            universalApk true
+        }
+    }
+
+    signingConfigs {
+        debug {
+            // AGP leaves v1 off when minSdk is 24 or newer. Keep the JAR signature as well
+            // as APK v2 and v3. xtask zipaligns and signs again after packaging, which is
+            // the signature that ships; these flags cover a Gradle-only build.
+            enableV1Signing true
+            enableV2Signing true
+            enableV3Signing true
+            enableV4Signing true
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
+    buildTypes {
+        debug {
+            minifyEnabled false
+        }
+        release {
+            minifyEnabled false
+            // A debug key is enough to sideload. Play signing is a later step.
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    packaging {
+        jniLibs {
+            // Compress the cdylib so the sideload APK stays small. Zip page alignment
+            // applies only to stored libraries; ELF LOAD alignment stays 16 KB via the
+            // max-page-size link flag, which is what a 16 KB-page device checks after extract.
+            useLegacyPackaging true
+        }
+    }
+}
+
+configurations.configureEach {
+    // kotlin-stdlib 1.8 absorbed the jdk7/jdk8 artifacts. GameActivity still pulls the old jars.
+    exclude group: "org.jetbrains.kotlin", module: "kotlin-stdlib-jdk7"
+    exclude group: "org.jetbrains.kotlin", module: "kotlin-stdlib-jdk8"
+}
+
+dependencies {
+    implementation "androidx.games:games-activity:4.4.0"
+    implementation "androidx.appcompat:appcompat:1.7.0"
+    implementation "androidx.activity:activity:1.9.3"
+    implementation "androidx.documentfile:documentfile:1.0.1"
+}

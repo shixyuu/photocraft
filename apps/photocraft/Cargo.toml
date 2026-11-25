@@ -32,7 +32,9 @@ photocraft-tablet = { workspace = true }
 # The framework facade: `craft::host` (Wake, window services), `craft::menu` (the macOS menu bar)
 # and `craft::automation` (the control server, the agent link and the launcher's agents switch).
 craft = { workspace = true, features = ["ui", "menu", "automation-agents", "control-agents"] }
-eframe = { workspace = true, features = ["wgpu", "accesskit", "wayland", "x11", "persistence", "clipboard"] }
+# `android-game-activity` is what eframe's Android event loop reads. On other targets it only
+# enables winit's Android feature, whose crate is not built.
+eframe = { workspace = true, features = ["wgpu", "accesskit", "wayland", "x11", "persistence", "clipboard", "android-game-activity"] }
 egui = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -47,11 +49,21 @@ tempfile = "=3.27.0"
 craft-xml = { workspace = true }
 craft-update = { workspace = true }
 rfd = { workspace = true }
-arboard = { version = "3.7", features = ["wayland-data-control"] }
 open = "5"
 # Reads the saved window layout (eframe persistence) to drop values that would abort startup.
 ron = "0.12"
-# Background release checks; HTTPS with Rust TLS, no async runtime.
+
+# arboard 3.7 has no Android backend (its Unix clipboard is cfg'd off there).
+[target.'cfg(not(any(target_arch = "wasm32", target_os = "android")))'.dependencies]
+arboard = { version = "3.7", features = ["wayland-data-control"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+# The workspace patch selects storytold/winit. GameActivity is the backend eframe requires
+# together with accesskit.
+winit = { version = "=0.30.13", default-features = false, features = ["android-game-activity"] }
+android_logger = "=0.15.0"
+flate2 = { workspace = true }
+png = "=0.17.16"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # Safe CoreGraphics bindings, compatible with the existing macOS 11 deployment target.
@@ -119,6 +131,8 @@ winsafe = { version = "=0.0.29", default-features = false, features = ["user", "
 winresource = "0.1"
 
 [dev-dependencies]
+# The Android sample PNG encoder is exercised on the desktop test target.
+flate2 = { workspace = true }
 # Opt-in native save-back acceptance transports embedded sources through engine JSON.
 base64 = "=0.22.1"
 egui_kittest = { workspace = true, features = ["wgpu", "snapshot", "eframe"] }
