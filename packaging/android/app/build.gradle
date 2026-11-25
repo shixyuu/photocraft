@@ -11,7 +11,7 @@ android {
         applicationId "ai.storyteller.photocraft"
         minSdk 28
         targetSdk 35
-        versionCode 3
+        versionCode 4
         versionName "0.23.1"
         ndk {
             abiFilters "arm64-v8a", "x86_64"
@@ -63,10 +63,10 @@ android {
 
     packaging {
         jniLibs {
-            // Uncompressed, so the package manager can mmap the library out of the APK.
-            // zipalign -P 16 (xtask, after this package step and before signing) places each
-            // .so on a 16 KB boundary. Legacy packaging compresses them and hides that alignment.
-            useLegacyPackaging false
+            // Compress the cdylib so the sideload APK stays small. Zip page alignment
+            // applies only to stored libraries; ELF LOAD alignment stays 16 KB via the
+            // max-page-size link flag, which is what a 16 KB-page device checks after extract.
+            useLegacyPackaging true
         }
     }
 }

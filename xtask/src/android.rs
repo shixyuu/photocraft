@@ -52,11 +52,24 @@ pub fn run(root: &Path, args: &[&str]) -> Result<(), String> {
     ndk_cmd.env("CARGO_TARGET_AARCH64_LINUX_ANDROID_RUSTFLAGS", page);
     ndk_cmd.env("CARGO_TARGET_X86_64_LINUX_ANDROID_RUSTFLAGS", page);
     ndk_cmd.env("LDFLAGS", "-Wl,-z,max-page-size=16384");
+    if !debug {
+        // Size-first release of this cdylib only. The workspace release profile is already
+        // thin LTO and one codegen unit; opt-level "s" and symbol stripping are applied here
+        // so a desktop release build is unchanged. Fat LTO is not used: one fat unit of this
+        // workspace needs about 21 GB. Panic stays the target default (unwind on Android).
+        ndk_cmd.env("CARGO_PROFILE_RELEASE_LTO", "thin");
+        ndk_cmd.env("CARGO_PROFILE_RELEASE_CODEGEN_UNITS", "1");
+        ndk_cmd.env("CARGO_PROFILE_RELEASE_OPT_LEVEL", "s");
+        ndk_cmd.env("CARGO_PROFILE_RELEASE_STRIP", "symbols");
+    }
     crate::run(ndk_cmd, "cargo ndk build -p photocraft-android")?;
     for name in &abis {
         let so = jni.join(name).join("libphotocraft.so");
         if !so.is_file() {
             return Err(format!("missing {}", so.display()));
+        }
+        if !debug {
+            llvm_strip(&ndk, &so)?;
         }
     }
     let gradle = ensure_gradle()?;
@@ -79,6 +92,10 @@ pub fn run(root: &Path, args: &[&str]) -> Result<(), String> {
     let dest_dir = root.join("target/android");
     std::fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
     for apk in built {
+        if !apk_contains_native_lib(&apk) {
+            eprintln!("skip {} (no libphotocraft.so; this ABI was not linked)", apk.display());
+            continue;
+        }
         let signed = align_and_sign(&sdk, &apk)?;
         let dest = dest_dir.join(published_name(&apk, profile));
         std::fs::copy(&signed, &dest).map_err(|e| e.to_string())?;
@@ -99,8 +116,10 @@ fn published_name(apk: &Path, profile: &str) -> String {
     format!("photocraft-{profile}-{label}.apk")
 }
 
-/// 16 KB-align uncompressed native libraries, then sign. Alignment must be the last
-/// byte change before the signature; signing first and aligning after invalidates it.
+/// Align zip entries, then sign. Alignment must be the last byte change before the
+/// signature. Native libraries are compressed (`useLegacyPackaging`), so 16 KB zip
+/// alignment does not apply to them; ELF alignment is the max-page-size link flag.
+/// `resources.arsc` stays stored and 4-byte aligned, which is what this check guards.
 fn align_and_sign(sdk: &Path, apk: &Path) -> Result<PathBuf, String> {
     let tools = build_tools(sdk)?;
     let zipalign = tools.join("zipalign");
@@ -134,9 +153,31 @@ fn align_and_sign(sdk: &Path, apk: &Path) -> Result<PathBuf, String> {
     check.arg("-c").arg("-P").arg("16").arg("4").arg(&aligned);
     crate::run(check, "zipalign -c -P 16")?;
     let mut verify = Command::new(&apksigner);
-    verify.arg("verify").arg("--verbose").arg("--min-sdk-version").arg("24").arg("--max-sdk-version").arg("35").arg(&aligned);
+    verify.arg("verify").arg("--verbose").arg("--min-sdk-version").arg("28").arg(&aligned);
     crate::run(verify, "apksigner verify")?;
     Ok(aligned)
+}
+
+fn apk_contains_native_lib(apk: &Path) -> bool {
+    let Ok(out) = Command::new("unzip").arg("-l").arg(apk).output() else {
+        return true;
+    };
+    String::from_utf8_lossy(&out.stdout).contains("libphotocraft.so")
+}
+
+fn llvm_strip(ndk: &Path, so: &Path) -> Result<(), String> {
+    let root = ndk.join("toolchains/llvm/prebuilt");
+    let mut bins = std::fs::read_dir(&root)
+        .map_err(|e| format!("{}: {e}", root.display()))?
+        .filter_map(|e| e.ok())
+        .map(|e| e.path().join("bin/llvm-strip"))
+        .filter(|p| p.is_file())
+        .collect::<Vec<_>>();
+    bins.sort();
+    let bin = bins.pop().ok_or_else(|| format!("llvm-strip not under {}", root.display()))?;
+    let mut cmd = Command::new(bin);
+    cmd.arg("--strip-unneeded").arg(so);
+    crate::run(cmd, "llvm-strip --strip-unneeded")
 }
 
 fn build_tools(sdk: &Path) -> Result<PathBuf, String> {
