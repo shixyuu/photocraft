@@ -35,7 +35,7 @@ pub fn run(root: &Path, args: &[&str]) -> Result<(), String> {
     ensure_cargo_ndk()?;
     let jni = root.join("packaging/android/app/src/main/jniLibs");
     let _ = std::fs::remove_dir_all(&jni);
-    let profile = if debug { "dev" } else { "release" };
+    let profile = if debug { "debug" } else { "release" };
     let mut ndk_cmd = Command::new("cargo");
     ndk_cmd.arg("ndk").current_dir(root).env("ANDROID_NDK_HOME", &ndk).env("ANDROID_SDK_ROOT", &sdk);
     for name in &abis {
@@ -47,6 +47,11 @@ pub fn run(root: &Path, args: &[&str]) -> Result<(), String> {
         ndk_cmd.arg("--release");
     }
     ndk_cmd.env("CARGO_BUILD_JOBS", std::env::var("CARGO_BUILD_JOBS").unwrap_or_else(|_| "2".into()));
+    // Joined with .cargo/config.toml. The final cdylib link is what sets LOAD alignment.
+    let page = "-C link-arg=-Wl,-z,max-page-size=16384";
+    ndk_cmd.env("CARGO_TARGET_AARCH64_LINUX_ANDROID_RUSTFLAGS", page);
+    ndk_cmd.env("CARGO_TARGET_X86_64_LINUX_ANDROID_RUSTFLAGS", page);
+    ndk_cmd.env("LDFLAGS", "-Wl,-z,max-page-size=16384");
     crate::run(ndk_cmd, "cargo ndk build -p photocraft-android")?;
     for name in &abis {
         let so = jni.join(name).join("libphotocraft.so");
@@ -61,18 +66,114 @@ pub fn run(root: &Path, args: &[&str]) -> Result<(), String> {
     let mut gradle_cmd = Command::new(&gradle);
     gradle_cmd.current_dir(root.join("packaging/android")).arg(task).env("ANDROID_SDK_ROOT", &sdk).env("ANDROID_HOME", &sdk);
     crate::run(gradle_cmd, &format!("gradle {task}"))?;
-    let apk_name = if debug { "app-debug.apk" } else { "app-release.apk" };
-    let built = root.join("packaging/android/app/build/outputs/apk").join(if debug { "debug" } else { "release" }).join(apk_name);
-    if !built.is_file() {
-        return Err(format!("gradle did not write {}", built.display()));
+    let out_dir = root.join("packaging/android/app/build/outputs/apk").join(if debug { "debug" } else { "release" });
+    let built = std::fs::read_dir(&out_dir)
+        .map_err(|e| format!("{}: {e}", out_dir.display()))?
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "apk"))
+        .collect::<Vec<_>>();
+    if built.is_empty() {
+        return Err(format!("gradle did not write an apk in {}", out_dir.display()));
     }
-    let out_dir = root.join("target/android");
-    std::fs::create_dir_all(&out_dir).map_err(|e| e.to_string())?;
-    let abi_label = if abis.len() == 2 { "all".to_string() } else { abis[0].to_string() };
-    let dest = out_dir.join(format!("photocraft-{profile}-{abi_label}.apk"));
-    std::fs::copy(&built, &dest).map_err(|e| e.to_string())?;
-    eprintln!("APK {}", dest.display());
+    let dest_dir = root.join("target/android");
+    std::fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
+    for apk in built {
+        let signed = align_and_sign(&sdk, &apk)?;
+        let dest = dest_dir.join(published_name(&apk, profile));
+        std::fs::copy(&signed, &dest).map_err(|e| e.to_string())?;
+        eprintln!("APK {}", dest.display());
+    }
     Ok(())
+}
+
+/// `app-arm64-v8a-release.apk` becomes `photocraft-release-arm64-v8a.apk`.
+fn published_name(apk: &Path, profile: &str) -> String {
+    let stem = apk.file_stem().and_then(|s| s.to_str()).unwrap_or("app");
+    let mut label = stem.strip_prefix("app-").unwrap_or(stem).to_string();
+    for suffix in ["-release", "-debug"] {
+        if let Some(stripped) = label.strip_suffix(suffix) {
+            label = stripped.to_string();
+        }
+    }
+    format!("photocraft-{profile}-{label}.apk")
+}
+
+/// 16 KB-align uncompressed native libraries, then sign. Alignment must be the last
+/// byte change before the signature; signing first and aligning after invalidates it.
+fn align_and_sign(sdk: &Path, apk: &Path) -> Result<PathBuf, String> {
+    let tools = build_tools(sdk)?;
+    let zipalign = tools.join("zipalign");
+    let apksigner = tools.join("apksigner");
+    let aligned = apk.with_extension("aligned.apk");
+    let mut align = Command::new(&zipalign);
+    align.arg("-f").arg("-P").arg("16").arg("4").arg(apk).arg(&aligned);
+    crate::run(align, "zipalign -P 16")?;
+    let keystore = debug_keystore()?;
+    let mut sign = Command::new(&apksigner);
+    sign.arg("sign")
+        .arg("--ks")
+        .arg(&keystore)
+        .arg("--ks-key-alias")
+        .arg("androiddebugkey")
+        .arg("--ks-pass")
+        .arg("pass:android")
+        .arg("--key-pass")
+        .arg("pass:android")
+        .arg("--v1-signing-enabled")
+        .arg("true")
+        .arg("--v2-signing-enabled")
+        .arg("true")
+        .arg("--v3-signing-enabled")
+        .arg("true")
+        .arg("--v4-signing-enabled")
+        .arg("false")
+        .arg(&aligned);
+    crate::run(sign, "apksigner sign")?;
+    let mut check = Command::new(&zipalign);
+    check.arg("-c").arg("-P").arg("16").arg("4").arg(&aligned);
+    crate::run(check, "zipalign -c -P 16")?;
+    let mut verify = Command::new(&apksigner);
+    verify.arg("verify").arg("--verbose").arg("--min-sdk-version").arg("24").arg("--max-sdk-version").arg("35").arg(&aligned);
+    crate::run(verify, "apksigner verify")?;
+    Ok(aligned)
+}
+
+fn build_tools(sdk: &Path) -> Result<PathBuf, String> {
+    let root = sdk.join("build-tools");
+    let mut versions = std::fs::read_dir(&root).map_err(|e| format!("{}: {e}", root.display()))?.filter_map(|e| e.ok()).map(|e| e.path()).collect::<Vec<_>>();
+    versions.sort();
+    versions.pop().filter(|p| p.join("apksigner").is_file()).ok_or_else(|| format!("no build-tools under {}", root.display()))
+}
+
+fn debug_keystore() -> Result<PathBuf, String> {
+    let home = std::env::var_os("HOME").map(PathBuf::from).ok_or("HOME is unset")?;
+    let path = home.join(".android/debug.keystore");
+    if path.is_file() {
+        return Ok(path);
+    }
+    std::fs::create_dir_all(path.parent().unwrap_or(Path::new("."))).map_err(|e| e.to_string())?;
+    let mut keytool = Command::new("keytool");
+    keytool
+        .arg("-genkeypair")
+        .arg("-keystore")
+        .arg(&path)
+        .arg("-storepass")
+        .arg("android")
+        .arg("-keypass")
+        .arg("android")
+        .arg("-alias")
+        .arg("androiddebugkey")
+        .arg("-keyalg")
+        .arg("RSA")
+        .arg("-keysize")
+        .arg("2048")
+        .arg("-validity")
+        .arg("10000")
+        .arg("-dname")
+        .arg("CN=Android Debug,O=Android,C=US");
+    crate::run(keytool, "keytool debug keystore")?;
+    Ok(path)
 }
 
 fn sdk_root() -> Result<PathBuf, String> {

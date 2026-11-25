@@ -19,8 +19,11 @@ One command, from the repository root:
 cargo xtask android
 ```
 
-That builds `arm64-v8a` and `x86_64` release libraries, packages them, and signs the APK with the
-debug keystore. The APK is `target/android/photocraft-release-all.apk`.
+That builds `arm64-v8a` and `x86_64` release libraries and packages one APK per ABI plus a
+universal APK under `target/android/`. Native libraries are stored uncompressed. The xtask then
+runs `zipalign -P 16` and signs with the debug keystore (JAR v1, APK v2, and APK v3), in that
+order. The cdylib is linked with `-Wl,-z,max-page-size=16384` so every LOAD segment is 16 KB
+aligned (required on 16 KB-page devices such as Pixel 10). Release builds are not `android:testOnly`.
 
 ```sh
 cargo xtask android --abi x86_64    # emulator
@@ -28,7 +31,7 @@ cargo xtask android --abi arm64-v8a # devices
 cargo xtask android --debug         # unoptimized, still signed
 ```
 
-Install with `adb install -r target/android/photocraft-release-all.apk`.
+Install with `adb install -r target/android/photocraft-release-arm64-v8a.apk` (or `photocraft-release-x86_64.apk` on an emulator, or `photocraft-release-universal.apk` for both). On a device, `pm install` of that file is enough; the package is not `android:testOnly`, so the system installer does not need `adb install -t`.
 
 ## Prerequisites
 

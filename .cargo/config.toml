@@ -14,3 +14,12 @@ xtask-gate = "run --locked -p xtask --no-default-features -- ci"
 # they must hold for any cargo invocation, also one that never reads this file.
 [target.'cfg(all(windows, target_env = "msvc"))']
 rustflags = ["-Clink-arg=/DELAYLOAD:opengl32.dll", "-Clink-arg=delayimp.lib"]
+
+# 16 KB pages (Pixel 10 / Android 15+). The NDK r27 linker defaults to this; keep it explicit so a
+# 4 KB-default NDK cannot emit a cdylib the package manager rejects. Static C deps are linked into
+# this one cdylib, so the final rustc link sets every LOAD segment.
+[target.aarch64-linux-android]
+rustflags = ["-Clink-arg=-Wl,-z,max-page-size=16384"]
+
+[target.x86_64-linux-android]
+rustflags = ["-Clink-arg=-Wl,-z,max-page-size=16384"]

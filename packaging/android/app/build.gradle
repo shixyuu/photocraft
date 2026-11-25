@@ -11,10 +11,33 @@ android {
         applicationId "ai.storyteller.photocraft"
         minSdk 28
         targetSdk 35
-        versionCode 1
+        versionCode 3
         versionName "0.23.1"
         ndk {
             abiFilters "arm64-v8a", "x86_64"
+        }
+    }
+
+    // One release APK per ABI plus a universal package. The on-device installer opens a
+    // downloaded file; that path needs a JAR (v1) signature as well as the APK signing block.
+    splits {
+        abi {
+            enable true
+            reset()
+            include "arm64-v8a", "x86_64"
+            universalApk true
+        }
+    }
+
+    signingConfigs {
+        debug {
+            // AGP leaves v1 off when minSdk is 24 or newer. Keep the JAR signature as well
+            // as APK v2 and v3. xtask zipaligns and signs again after packaging, which is
+            // the signature that ships; these flags cover a Gradle-only build.
+            enableV1Signing true
+            enableV2Signing true
+            enableV3Signing true
+            enableV4Signing true
         }
     }
 
@@ -40,7 +63,10 @@ android {
 
     packaging {
         jniLibs {
-            useLegacyPackaging true
+            // Uncompressed, so the package manager can mmap the library out of the APK.
+            // zipalign -P 16 (xtask, after this package step and before signing) places each
+            // .so on a 16 KB boundary. Legacy packaging compresses them and hides that alignment.
+            useLegacyPackaging false
         }
     }
 }
