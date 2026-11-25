@@ -23,9 +23,9 @@
 // The first line must authenticate; subsequent request lines get reply lines.
 // `{"id":1,"ok":true,"result":…}`. See `photocraft_ui_egui::control` for the methods.
 
-mod app_dirs;
 #[cfg(target_os = "android")]
 mod android_host;
+mod app_dirs;
 #[cfg(any(test, target_os = "android"))]
 mod sample_png;
 #[cfg(target_os = "android")]

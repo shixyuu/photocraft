@@ -379,9 +379,8 @@ impl log::Log for AppLogger {
 #[cfg(target_os = "android")]
 fn logcat(record: &log::Record<'_>) {
     static LOGGER: OnceLock<android_logger::AndroidLogger> = OnceLock::new();
-    let logger = LOGGER.get_or_init(|| {
-        android_logger::AndroidLogger::new(android_logger::Config::default().with_tag("PhotoCraft").with_max_level(log::LevelFilter::Trace))
-    });
+    let logger = LOGGER
+        .get_or_init(|| android_logger::AndroidLogger::new(android_logger::Config::default().with_tag("PhotoCraft").with_max_level(log::LevelFilter::Trace)));
     log::Log::log(logger, record);
 }
 

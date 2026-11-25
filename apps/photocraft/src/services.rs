@@ -537,40 +537,40 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>, wa
             }
             #[cfg(not(target_os = "android"))]
             {
-            let clip = clip.clone();
-            let unreadable = clip_unreadable.clone();
-            guarded_clipboard_get(move || {
-                let mut slot = clip.try_borrow_mut().map_err(|_| "clipboard is busy".to_string())?;
-                let cb = match slot.as_mut() {
-                    Some(c) => c,
-                    None => {
-                        // arboard opens only when some backend works. In a Flatpak on Wayland none
-                        // does (#5031): the sandbox hides the data-control protocol from it, and
-                        // `--socket=fallback-x11` gives no X server while a compositor runs.
-                        let opened = arboard::Clipboard::new();
-                        unreadable.set(opened.is_err());
-                        slot.insert(opened.map_err(|e| e.to_string())?)
-                    }
-                };
-                clipboard_image(
-                    cb,
-                    |cb| clipboard_read(cb.get().file_list()),
-                    |cb| match cb.get_image() {
-                        Ok(img) => Ok(Some((img.width as u32, img.height as u32, img.bytes.into_owned()))),
-                        Err(error) => {
-                            #[cfg(target_os = "linux")]
-                            if let Some(image) = wayland_clipboard_image() {
-                                return Ok(Some(image));
-                            }
-                            match error {
-                                arboard::Error::ContentNotAvailable => Ok(None),
-                                _ => Err(error.to_string()),
-                            }
+                let clip = clip.clone();
+                let unreadable = clip_unreadable.clone();
+                guarded_clipboard_get(move || {
+                    let mut slot = clip.try_borrow_mut().map_err(|_| "clipboard is busy".to_string())?;
+                    let cb = match slot.as_mut() {
+                        Some(c) => c,
+                        None => {
+                            // arboard opens only when some backend works. In a Flatpak on Wayland none
+                            // does (#5031): the sandbox hides the data-control protocol from it, and
+                            // `--socket=fallback-x11` gives no X server while a compositor runs.
+                            let opened = arboard::Clipboard::new();
+                            unreadable.set(opened.is_err());
+                            slot.insert(opened.map_err(|e| e.to_string())?)
                         }
-                    },
-                    |cb| clipboard_text(cb.get_text()),
-                )
-            })
+                    };
+                    clipboard_image(
+                        cb,
+                        |cb| clipboard_read(cb.get().file_list()),
+                        |cb| match cb.get_image() {
+                            Ok(img) => Ok(Some((img.width as u32, img.height as u32, img.bytes.into_owned()))),
+                            Err(error) => {
+                                #[cfg(target_os = "linux")]
+                                if let Some(image) = wayland_clipboard_image() {
+                                    return Ok(Some(image));
+                                }
+                                match error {
+                                    arboard::Error::ContentNotAvailable => Ok(None),
+                                    _ => Err(error.to_string()),
+                                }
+                            }
+                        },
+                        |cb| clipboard_text(cb.get_text()),
+                    )
+                })
             }
         }),
         clipboard_get_svg: Some({
