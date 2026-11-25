@@ -4,7 +4,9 @@
 use photocraft_doc::Document;
 use photocraft_format::RecoveryStore;
 use photocraft_ui_egui::{Recoverable, Services};
-use std::cell::{Cell, RefCell};
+#[cfg(not(target_os = "android"))]
+use std::cell::Cell;
+use std::cell::RefCell;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -361,6 +363,7 @@ fn clipboard_image<C>(
 /// One OS clipboard read as [`clipboard_image`] takes it: no content in the format asked for is
 /// `None`, and any other failure, such as a busy clipboard or a broken pipe on Wayland, is the
 /// read's error.
+#[cfg(not(target_os = "android"))]
 fn clipboard_read<T>(read: Result<T, arboard::Error>) -> Result<Option<T>, String> {
     match read {
         Ok(value) => Ok(Some(value)),
@@ -371,6 +374,7 @@ fn clipboard_read<T>(read: Result<T, arboard::Error>) -> Result<Option<T>, Strin
 
 /// Clipboard text as [`clipboard_image`] takes it: like [`clipboard_read`], except that text that
 /// isn't UTF-8 is `None`, like other text that isn't SVG markup.
+#[cfg(not(target_os = "android"))]
 fn clipboard_text(read: Result<String, arboard::Error>) -> Result<Option<String>, String> {
     match read {
         Err(arboard::Error::ConversionFailure) => Ok(None),
@@ -462,7 +466,9 @@ pub fn agent_automation(settings: &craft::automation::agents::AgentSettings) -> 
 /// Every native service. `wake` requests a repaint from any thread; the file panels answer through it.
 pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>, wake: craft::dialogs::Wake) -> Services {
     let (files, file_panels) = craft::dialogs::service::FileService::new(wake);
+    #[cfg(not(target_os = "android"))]
     let clip: Rc<RefCell<Option<arboard::Clipboard>>> = Rc::default();
+    #[cfg(not(target_os = "android"))]
     let clip_unreadable: Rc<Cell<bool>> = Rc::default();
     let automation = self::automation(automation);
     Services {
@@ -494,21 +500,43 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>, wa
         automation_command: automation.command,
         automation_authorize: automation.authorize,
         inbox: None,
-        open_url: Some(Box::new(|url: &str| open::that(url).map_err(|e| e.to_string()))),
+        open_url: Some(Box::new(|url: &str| {
+            #[cfg(target_os = "android")]
+            {
+                crate::android_host::open_url(url)
+            }
+            #[cfg(not(target_os = "android"))]
+            {
+                open::that(url).map_err(|e| e.to_string())
+            }
+        })),
         beep: Some(platform_beep),
         clipboard_set_image: Some({
-            let clip = clip.clone();
-            guarded_clipboard_set(move |w: u32, h: u32, px: &[u8]| {
-                let mut slot = clip.try_borrow_mut().map_err(|_| "clipboard is busy".to_string())?;
-                let cb = match slot.as_mut() {
-                    Some(c) => c,
-                    None => slot.insert(arboard::Clipboard::new().map_err(|e| e.to_string())?),
-                };
-                cb.set_image(arboard::ImageData { width: w as usize, height: h as usize, bytes: std::borrow::Cow::Borrowed(px) }).map_err(|e| e.to_string())
-            })
+            #[cfg(target_os = "android")]
+            {
+                guarded_clipboard_set(crate::android_host::set_clipboard_image)
+            }
+            #[cfg(not(target_os = "android"))]
+            {
+                let clip = clip.clone();
+                guarded_clipboard_set(move |w: u32, h: u32, px: &[u8]| {
+                    let mut slot = clip.try_borrow_mut().map_err(|_| "clipboard is busy".to_string())?;
+                    let cb = match slot.as_mut() {
+                        Some(c) => c,
+                        None => slot.insert(arboard::Clipboard::new().map_err(|e| e.to_string())?),
+                    };
+                    cb.set_image(arboard::ImageData { width: w as usize, height: h as usize, bytes: std::borrow::Cow::Borrowed(px) }).map_err(|e| e.to_string())
+                })
+            }
         }),
         open_external_svg: Some(Box::new(crate::external_svg::open)),
         clipboard_get_image: Some({
+            #[cfg(target_os = "android")]
+            {
+                guarded_clipboard_get(crate::android_host::get_clipboard_image)
+            }
+            #[cfg(not(target_os = "android"))]
+            {
             let clip = clip.clone();
             let unreadable = clip_unreadable.clone();
             guarded_clipboard_get(move || {
@@ -543,19 +571,36 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>, wa
                     |cb| clipboard_text(cb.get_text()),
                 )
             })
+            }
         }),
         clipboard_get_svg: Some({
-            let clip = clip.clone();
-            guarded_clipboard_svg(move || {
-                let mut slot = clip.try_borrow_mut().map_err(|_| "clipboard is busy".to_string())?;
-                let cb = match slot.as_mut() {
-                    Some(c) => c,
-                    None => slot.insert(arboard::Clipboard::new().map_err(|e| e.to_string())?),
-                };
-                svg_clipboard_source(clipboard_text(cb.get_text())?)
-            })
+            #[cfg(target_os = "android")]
+            {
+                guarded_clipboard_svg(|| svg_clipboard_source(crate::android_host::get_clipboard_text()?))
+            }
+            #[cfg(not(target_os = "android"))]
+            {
+                let clip = clip.clone();
+                guarded_clipboard_svg(move || {
+                    let mut slot = clip.try_borrow_mut().map_err(|_| "clipboard is busy".to_string())?;
+                    let cb = match slot.as_mut() {
+                        Some(c) => c,
+                        None => slot.insert(arboard::Clipboard::new().map_err(|e| e.to_string())?),
+                    };
+                    svg_clipboard_source(clipboard_text(cb.get_text())?)
+                })
+            }
         }),
-        clipboard_unreadable: Some(Box::new(move || clip_unreadable.get())),
+        clipboard_unreadable: Some({
+            #[cfg(target_os = "android")]
+            {
+                Box::new(|| false)
+            }
+            #[cfg(not(target_os = "android"))]
+            {
+                Box::new(move || clip_unreadable.get())
+            }
+        }),
         photoshop_shortcuts: Some(Box::new(|| crate::photoshop_settings::live_keyboard_shortcuts(&|k| std::env::var_os(k)))),
         load_gpu_memo: Some(Box::new(load_gpu_memo_text)),
         save_gpu_memo: Some(Box::new(|text: &str| {

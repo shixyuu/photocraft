@@ -3,6 +3,7 @@
 //! Pure Rust (std + serde_json). External tools (`cargo`, `curl`, `tar`) are
 //! invoked through `std::process::Command`.
 
+mod android;
 mod cache_units;
 mod cargo_env;
 mod corpus;
@@ -79,6 +80,8 @@ commands:
                   pack square PNGs (<= 256 px) into a Windows .ico (see packaging/icons.sh)
   psd-write-oracle <recipes.json> <corpus-dir> <photocraft-cli> <new-output-dir>
                   run PSD export recipes and write a JSON report and manifest
+  android [--abi arm64-v8a|x86_64|all] [--debug]
+                  build a signed APK (debug keystore) for the native Android app. See docs/android.md
 ";
 
 fn main() -> ExitCode {
@@ -102,6 +105,7 @@ fn main() -> ExitCode {
         Some("version") => version::run(&root(), &rest),
         Some("ico") => ico::run(&rest),
         Some("psd-write-oracle") => psd_write_oracle::run(&root(), &rest),
+        Some("android") => android::run(&root(), &rest),
         Some("-h" | "--help" | "help") | None => {
             print!("{USAGE}");
             Ok(())

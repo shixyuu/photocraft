@@ -27,8 +27,18 @@ pub use photocraft_automation::app_dirs::{DataDir, Mode, resolve};
 use photocraft_automation::app_dirs::{PORTABLE_DATA_DIR, PORTABLE_MARKERS, WRITE_PROBE_ATTEMPTS, ensure_writable, platform_dir, portable_marker};
 
 /// The data directory for this process, resolved once (the portable check probes the disk).
+static DIR: OnceLock<DataDir> = OnceLock::new();
+
+/// Use `dir` as the settings directory for this process. Android calls this before anything else
+/// resolves a path: the platform has no XDG home, and setting an environment variable is `unsafe`
+/// on this toolchain. A later call does nothing; the first resolution wins.
+#[cfg(target_os = "android")]
+pub fn set_override(dir: PathBuf) {
+    let _ = DIR.set(DataDir { dir: Some(dir), mode: Mode::Override, warning: None });
+}
+
+/// The data directory for this process, resolved once (the portable check probes the disk).
 pub fn current() -> &'static DataDir {
-    static DIR: OnceLock<DataDir> = OnceLock::new();
     DIR.get_or_init(|| {
         let exe = std::env::current_exe().ok();
         let d = match crate::launch_profile::current().root() {

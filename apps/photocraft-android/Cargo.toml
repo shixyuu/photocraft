@@ -1,0 +1,27 @@
+[package]
+name = "photocraft-android"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "PhotoCraft Android native library (GameActivity). The desktop UI is the same egui app."
+
+[lib]
+# GameActivity loads libphotocraft.so (`android.app.lib_name` = photocraft).
+name = "photocraft"
+crate-type = ["cdylib"]
+
+# Only the Android target links the app. A desktop workspace check builds an empty library.
+[target.'cfg(target_os = "android")'.dependencies]
+photocraft = { path = "../photocraft" }
+winit = { version = "=0.30.13", default-features = false, features = ["android-game-activity"] }
+
+# `android_main` is an unmangled Rust ABI export. `unsafe_code = "forbid"` rejects
+# `#[unsafe(no_mangle)]`, and that attribute is the whole of the unsafe surface here.
+[lints.rust]
+unsafe_code = "allow"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"

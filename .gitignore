@@ -12,6 +12,12 @@ target/
 *.log
 __pycache__/
 
+# Android packaging outputs (cargo xtask android). The project sources stay.
+/packaging/android/.gradle/
+/packaging/android/local.properties
+/packaging/android/app/build/
+/packaging/android/app/src/main/jniLibs/
+
 # Checked out inside the workspace by the shared nightly workflows (craft-common-actions).
 /.nightly-tools
 /.nightly-input

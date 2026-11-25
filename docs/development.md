@@ -40,6 +40,7 @@ On Linux and FreeBSD, PhotoCraft keeps its integrated client-side decorated titl
 
 ```sh
 cargo run --release -p photocraft -- path/to/image.psd      # desktop app
+cargo xtask android                                        # signed Android APK (docs/android.md)
 cargo run --release -p photocraft -- --control 7878 --control-token-file .private/control.token \
   --automation-read-root work --automation-write-root work
 cargo test --workspace                                     # everything

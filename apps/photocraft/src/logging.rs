@@ -362,6 +362,8 @@ impl log::Log for AppLogger {
         if !self.enabled(record.metadata()) {
             return;
         }
+        #[cfg(target_os = "android")]
+        logcat(record);
         let thread = std::thread::current();
         let line = format_line(&timestamp(SystemTime::now()), record.level(), thread.name().unwrap_or("?"), record.target(), &record.args().to_string());
         if self.stderr {
@@ -371,6 +373,16 @@ impl log::Log for AppLogger {
     }
 
     fn flush(&self) {}
+}
+
+/// Mirror a record to logcat. stderr from a GameActivity is not a reliable log.
+#[cfg(target_os = "android")]
+fn logcat(record: &log::Record<'_>) {
+    static LOGGER: OnceLock<android_logger::AndroidLogger> = OnceLock::new();
+    let logger = LOGGER.get_or_init(|| {
+        android_logger::AndroidLogger::new(android_logger::Config::default().with_tag("PhotoCraft").with_max_level(log::LevelFilter::Trace))
+    });
+    log::Log::log(logger, record);
 }
 
 /// Install the logger (filter from `RUST_LOG`, else [`DEFAULT_FILTER`]); `None` when another

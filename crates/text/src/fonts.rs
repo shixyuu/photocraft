@@ -1054,7 +1054,16 @@ pub fn installed_catalog() -> &'static Arc<Catalog> {
 #[cfg(not(target_arch = "wasm32"))]
 pub fn start_catalog(wake: impl Fn() + Send + Sync + 'static) {
     use craft::font_catalog::app::{self, AppFonts};
-    app::start(AppFonts { on_change: Some(Arc::new(move |_: &Catalog| wake())), ..AppFonts::default() });
+    #[cfg_attr(not(target_os = "android"), allow(unused_mut))]
+    let mut fonts = AppFonts { on_change: Some(Arc::new(move |_: &Catalog| wake())), ..AppFonts::default() };
+    // fontique's system collection does not see Android's font directory. Noto lives here.
+    #[cfg(target_os = "android")]
+    {
+        fonts.dirs.push(std::path::PathBuf::from("/system/fonts"));
+        fonts.dirs.push(std::path::PathBuf::from("/product/fonts"));
+        fonts.dirs.push(std::path::PathBuf::from("/system/product/fonts"));
+    }
+    app::start(fonts);
 }
 
 /// For a window's activation once [`start_catalog`] ran: checks the font folders for changes on

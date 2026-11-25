@@ -368,6 +368,16 @@ fn skips_indirect_validation(os: Os, intel: bool) -> bool {
     os == Os::Mac && intel
 }
 
+/// Prefer a Vulkan adapter that can present, then GLES. SwiftShader reports Vulkan and still wins,
+/// which is what an emulator without a hardware GPU should use.
+#[cfg(target_os = "android")]
+fn prefer_vulkan_adapter(adapters: &[wgpu::Adapter], surface: Option<&wgpu::Surface<'_>>) -> Result<wgpu::Adapter, String> {
+    let supports = |adapter: &wgpu::Adapter| surface.is_none_or(|s| adapter.is_surface_supported(s));
+    let vulkan = adapters.iter().find(|adapter| adapter.get_info().backend == wgpu::Backend::Vulkan && supports(adapter));
+    let gl = adapters.iter().find(|adapter| adapter.get_info().backend == wgpu::Backend::Gl && supports(adapter));
+    vulkan.or(gl).cloned().ok_or_else(|| "no graphics adapter found".to_string())
+}
+
 /// Configure eframe's wgpu setup for `plan`: instance backends, the DX12 shader compiler, adapter
 /// selection (Intel and Qualcomm on Windows, software adapters for `cpu`) and the marker update
 /// once the adapter is chosen. `note` receives a remark for System Info (e.g. the DX12 default).
@@ -387,6 +397,14 @@ pub fn configure(setup: &mut egui_wgpu::WgpuSetup, plan: &Plan, os: Os, wanted: 
         let without_vulkan = windows_auto_backends(plan, os, || dx12_vendors(&create.instance_descriptor));
         if let Some(b) = without_vulkan {
             create.instance_descriptor.backends = b;
+        }
+        // Vulkan is the window backend on Android. GLES stays available so a device without
+        // Vulkan (or an emulator on ANGLE) can still present. Any Vulkan adapter, including
+        // SwiftShader, wins over GLES.
+        #[cfg(target_os = "android")]
+        if plan.env.is_none() && plan.backend == GpuBackend::Auto {
+            create.instance_descriptor.backends = wgpu::Backends::VULKAN | wgpu::Backends::GL;
+            create.native_adapter_selector = Some(Arc::new(|adapters, surface| prefer_vulkan_adapter(adapters, surface)));
         }
         let vulkan_left_out = without_vulkan.is_some();
         let wanted = applicable_adapter(wanted, plan.backend, ADAPTER_CHOICE);
